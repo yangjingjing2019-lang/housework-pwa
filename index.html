@@ -71,8 +71,8 @@
   <script type="text/babel">
     const { useState, useEffect, useMemo, useRef } = React;
 
-    // --- 預設家事資料群組 ---
- const DEFAULT_TASKS = [
+    // --- 預設家事資料群組 (已修正全形逗號、並提供唯一 id 防止 React 重複 Key 報錯) ---
+    const DEFAULT_TASKS = [
       // 烹飪與餐廚
       { id: 'buy_groceries', name: '買菜', points: 30, icon: '🧺', category: 'kitchen' },
       { id: 'cook', name: '煮飯', points: 30, icon: '👨‍🍳', category: 'kitchen' },
@@ -120,7 +120,7 @@
       { id: 'outdoor', name: '戶外車輛', icon: '🚗' },
       { id: 'other', name: '其它項目', icon: '✨' }
     ];
-    
+
     const DEFAULT_MEMBERS = ["皓皓", "爸爸", "媽媽", "姨婆"];
 
     // 擬真音效產生器 (使用 Web Audio API，不需加載外部音檔)
@@ -161,6 +161,7 @@
       });
       
       const [customTasks, setCustomTasks] = useState(() => {
+        // 修改了 DEFAULT_TASKS 結構，因此強制重新加載最新的預設，避免舊快取干擾
         const saved = localStorage.getItem('housework_tasks_v2');
         return saved ? JSON.parse(saved) : DEFAULT_TASKS;
       });
@@ -234,11 +235,9 @@
                 return {
                   id: doc.id,
                   ...data,
-                  // 轉換 timestamp 為可讀格式或維持 Date
                   timestamp: data.timestamp ? { toDate: () => data.timestamp.toDate() } : null
                 };
               });
-              // 按時間由新到舊排序
               cloudLogs.sort((a, b) => {
                 const timeA = a.timestamp ? a.timestamp.toDate().getTime() : new Date(a.createdAt).getTime();
                 const timeB = b.timestamp ? b.timestamp.toDate().getTime() : new Date(b.createdAt).getTime();
@@ -257,7 +256,6 @@
             loadLocalLogs();
           }
         } else {
-          // 沒有 Firebase，直接加載 LocalStorage
           loadLocalLogs();
         }
 
@@ -267,7 +265,6 @@
           if (cachedLogs) {
             try {
               const parsed = JSON.parse(cachedLogs);
-              // 將原本是 String 的 createdAt 還原成可調用 toDate() 的物件結構
               const mapped = parsed.map(log => ({
                 ...log,
                 timestamp: { toDate: () => new Date(log.createdAt) }
@@ -340,7 +337,6 @@
         const updatedLogs = [localLog, ...logs];
         setLogs(updatedLogs);
         
-        // 轉為普通 JSON 格式儲存（避免儲存 circular 物件）
         const storageFriendly = updatedLogs.map(l => ({
           id: l.id,
           userName: l.userName,
@@ -430,7 +426,7 @@
       const handleSaveSettings = () => {
         try {
           if (newConfigTemp.trim()) {
-            JSON.parse(newConfigTemp); // 驗證 JSON 格式
+            JSON.parse(newConfigTemp);
             localStorage.setItem('housework_firebase_config', newConfigTemp);
             setFirebaseConfigInput(newConfigTemp);
             showToast("雲端連線配置成功！系統正在重新同步...", "success");
@@ -489,7 +485,6 @@
         message += `📅 統計截止: ${new Date().toLocaleString()}\n`;
         message += `💪 大家辛苦了！一起守護乾淨溫馨的家園！`;
 
-        // 複製到剪貼簿 (相容性佳的後備方案)
         const textArea = document.createElement("textarea");
         textArea.value = message;
         document.body.appendChild(textArea);
@@ -503,7 +498,6 @@
         }
         document.body.removeChild(textArea);
 
-        // 嘗試打開 WhatsApp
         const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
         window.open(url, '_blank');
       };
@@ -535,7 +529,6 @@
             </div>
           )}
 
-          {}
           {/* 頂部導航列 */}
           <header className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-100 px-6 py-4 flex justify-between items-center z-40">
             <div className="flex items-center gap-2">
@@ -581,7 +574,6 @@
           {/* 主要視窗內容 */}
           <main className="px-4 py-4 space-y-5">
             
-            {}
             {/* === TAB 1: 快速打卡首頁 === */}
             {activeTab === 'home' && (
               <>
@@ -718,7 +710,6 @@
               </>
             )}
 
-            {}
             {/* === TAB 2: 歷史紀錄流水帳 === */}
             {activeTab === 'history' && (
               <section className="space-y-4">
@@ -770,7 +761,6 @@
               </section>
             )}
 
-            {}
             {/* === TAB 3: 結算統計與分享 === */}
             {activeTab === 'settle' && (
               <section className="space-y-6">
@@ -821,7 +811,6 @@
             )}
           </main>
 
-          {}
           {/* === 彈出視窗 1: 身分選擇介面 === */}
           {showMemberSelect && (
             <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-end justify-center">
@@ -861,7 +850,6 @@
             </div>
           )}
 
-          {}
           {/* === 彈出視窗 2: 系統設定 === */}
           {showSettingsModal && (
             <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -942,7 +930,6 @@
             </div>
           )}
 
-          {}
           {/* === 彈出視窗 3: PWA 下載手機案內 === */}
           {showPwaGuide && (
             <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -996,7 +983,6 @@
             </div>
           )}
 
-          {}
           {/* 底部固定導航欄 */}
           <nav className="fixed bottom-6 left-6 right-6 bg-slate-900/95 backdrop-blur-xl rounded-[2.2rem] px-8 py-4 flex justify-around items-center z-30 shadow-xl max-w-md mx-auto">
             <button 
