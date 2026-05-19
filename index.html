@@ -1,486 +1,1029 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { initializeApp } from 'firebase/app';
-import {
-getFirestore,
-collection,
-doc,
-setDoc,
-addDoc,
-onSnapshot,
-query,
-serverTimestamp
-} from 'firebase/firestore';
-import {
-getAuth,
-signInAnonymously,
-signInWithCustomToken,
-onAuthStateChanged
-} from 'firebase/auth';
-import {
-User,
-PlusCircle,
-History,
-CheckCircle2,
-Share2,
-Users,
-ChevronRight,
-LogOut,
-CalendarDays,
-Coins,
-Copy,
-Check
-} from 'lucide-react';
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>HOMETASK - 智慧家庭家事打卡系統</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Google Fonts: Inter & Noto Sans TC -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+  
+  <!-- React & ReactDOM (UMD) -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  
+  <!-- Babel for JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <!-- Firebase Compat SDKs (For easy script-tag integration) -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
 
-// --- Firebase 配置 (請確保在您的環境中注入配置) ---
-const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-const app = firebaseConfig.apiKey ? initializeApp(firebaseConfig) : null;
-const auth = app ? getAuth(app) : null;
-const db = app ? getFirestore(app) : null;
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'housework-pwa-v2';
-
-// --- 常數定義：更新後的人員名單 ---
-const FAMILY_MEMBERS = ["皓皓", "爸爸", "媽媽", "姨婆"];
-
-// --- 常數定義：更新後的 21 項精細家事清單與點數設定 --- const TASKS = [ // 烹飪與餐廚 { id: 'cook', name: '煮飯', points: 30, icon: '👨‍🍳' }, { id: 'dishes', name: '洗碗', points: 20, icon: '🍽️' }, { id: 'cut_fruit', name: '切水果', points: 10, icon: '🍎' },
-
-// 衣物整理 { id: 'laundry_wash', name: '洗衣服', points: 10, icon: '🧺' }, { id: 'laundry_hang', name: '晾衣服', points: 10, icon: '👕' }, { id: 'laundry_fold', name: '折疊衣服', points: 20, icon: '👔' },
-
-// 空間整理 { id: 'tidy_room', name: '收拾房間', points: 25, icon: '🧹' }, { id: 'tidy_living', name: '收拾客廳', points: 25, icon: '🛋️' }, { id: 'vacuum', name: '吸塵', points: 20, icon: '🌀' }, { id: 'wash_toilet', name: '洗廁所', points: 40, icon: '🚽' }, { id: 'wash_carpet', name: '洗地毯', points: 30, icon: '🧼' },
-
-// 寵物與水族 { id: 'feed_fish_turtle', name: '餵魚&龜', points: 10, icon: '🐢' }, { id: 'feed_birds', name: '餵鳥', points: 10, icon: '🐦' }, { id: 'clean_parrot', name: '清理鸚鵡糞便', points: 20, icon: '🦜' }, { id: 'clean_fish_tank', name: '清理魚缸', points: 30, icon: '🐠' },
-
-// 戶外與車輛 { id: 'trash', name: '倒垃圾', points: 20, icon: '🗑️' }, { id: 'sweep_leaves', name: '掃落葉', points: 15, icon: '🍂' }, { id: 'wash_garden', name: '洗花園', points: 30, icon: '🏡' }, { id: 'wash_car', name: '洗車', points: 50, icon: '🚗' }, { id: 'water_flowers', name: '澆花', points: 10, icon: '💧' },
-
-// 其他
-{ id: 'others', name: '其他家事', points: 15, icon: '✨' },
-];
-
-export default function App() {
-const [user, setUser] = useState(null);
-const [currentUserProfile, setCurrentUserProfile] = useState(null);
-const [logs, setLogs] = useState([]);
-const [loading, setLoading] = useState(true);
-const [activeTab, setActiveTab] = useState('home');
-const [showMemberSelect, setShowMemberSelect] = useState(false);
-const [copyStatus, setCopyStatus] = useState(false);
-
-// 1. 認證初始化 (支援本地 Demo 與 Firebase 聯網雙模式)
-useEffect(() => {
-if (!auth) {
-// 若無 Firebase，使用 LocalStorage 的模擬資料
-const savedName = localStorage.getItem('housework_user_v2');
-if (savedName) {
-setCurrentUserProfile(savedName);
-} else {
-setShowMemberSelect(true);
-}
-setLoading(false);
-return;
-}
-
-const initAuth = async () => {
-  try {
-    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-      await signInWithCustomToken(auth, __initial_auth_token);
-    } else {
-      await signInAnonymously(auth);
+  <style>
+    body {
+      font-family: 'Inter', 'Noto Sans TC', sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      background-color: #f8fafc;
     }
-  } catch (err) {
-    console.error("Auth error:", err);
-  }
-};
-initAuth();
-const unsubscribe = onAuthStateChanged(auth, (u) => {
-  setUser(u);
-  const savedName = localStorage.getItem('housework_user_v2');
-  if (savedName) setCurrentUserProfile(savedName);
-  else setShowMemberSelect(true);
-});
-return () => unsubscribe();
-
-
-}, []);
-
-// 2. 數據訂閱 (Firestore / 備用 LocalStorage)
-useEffect(() => {
-if (!db) {
-// 離線模擬資料
-const cachedLogs = localStorage.getItem('housework_logs_v2');
-if (cachedLogs) {
-setLogs(JSON.parse(cachedLogs));
-}
-setLoading(false);
-return;
-}
-if (!user) return;
-
-const logsRef = collection(db, 'artifacts', appId, 'public', 'data', 'logs');
-const unsubscribe = onSnapshot(logsRef, (snapshot) => {
-  const data = snapshot.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data()
-  }));
-  const sortedData = data.sort((a, b) => {
-    const timeA = a.timestamp?.seconds || 0;
-    const timeB = b.timestamp?.seconds || 0;
-    return timeB - timeA;
-  });
-  setLogs(sortedData);
-  setLoading(false);
-}, (err) => {
-  console.error("Firestore error:", err);
-  setLoading(false);
-});
-return () => unsubscribe();
-
-
-}, [user]);
-
-// 3. 動作處理
-const handleSelectUser = (name) => {
-setCurrentUserProfile(name);
-localStorage.setItem('housework_user_v2', name);
-setShowMemberSelect(false);
-};
-
-const handleAddLog = async (task) => {
-if (!currentUserProfile) return;
-const newLog = {
-userName: currentUserProfile,
-taskId: task.id,
-taskName: task.name,
-points: task.points,
-createdAt: new Date().toISOString()
-};
-
-if (db) {
-  try {
-    const logsRef = collection(db, 'artifacts', appId, 'public', 'data', 'logs');
-    await addDoc(logsRef, {
-      ...newLog,
-      timestamp: serverTimestamp()
-    });
-  } catch (err) {
-    console.error("Add log failed to cloud:", err);
-  }
-} else {
-  // 本地無資料庫備用方案
-  const updatedLogs = [
-    { id: Date.now().toString(), ...newLog, timestamp: { toDate: () => new Date() } },
-    ...logs
-  ];
-  setLogs(updatedLogs);
-  localStorage.setItem('housework_logs_v2', JSON.stringify(updatedLogs));
-}
-
-if (navigator.vibrate) navigator.vibrate([50, 30, 50]);
-
-
-};
-
-const stats = useMemo(() => {
-const res = {};
-FAMILY_MEMBERS.forEach(m => res[m] = 0);
-logs.forEach(log => {
-if (res[log.userName] !== undefined) {
-res[log.userName] += (log.points || 0);
-}
-});
-return res;
-}, [logs]);
-
-const currentMonthLogs = useMemo(() => {
-const now = new Date();
-const currentMonth = now.getMonth();
-const currentYear = now.getFullYear();
-return logs.filter(log => {
-const d = log.timestamp?.toDate ? log.timestamp.toDate() : (log.createdAt ? new Date(log.createdAt) : new Date());
-return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-});
-}, [logs]);
-
-// WhatsApp 分享邏輯 (完美支援更新後的成員與家事)
-const handleShareToWhatsApp = () => {
-const now = new Date();
-const monthStr = ${now.getFullYear()}年${now.getMonth() + 1}月;
-let message = 🏠 *${monthStr} 家事勞動結算單*\n\n;
-
-FAMILY_MEMBERS.forEach(member => {
-  const mLogs = currentMonthLogs.filter(l => l.userName === member);
-  const total = mLogs.reduce((sum, l) => sum + l.points, 0);
-  message += `👤 *${member}*: 累計 $${total} 點\n`;
-  mLogs.slice(0, 3).forEach(l => {
-    message += `  - ${l.taskName} (+$${l.points})\n`;
-  });
-  if (mLogs.length > 3) message += `  ...及其他 ${mLogs.length - 3} 項\n`;
-  message += `\n`;
-});
-
-message += `📅 生成日期: ${new Date().toLocaleDateString()}\n`;
-message += `💪 大家辛苦了！保持乾淨溫馨的家！`;
-
-// 備援方案：自動複製到剪貼簿
-const textArea = document.createElement("textarea");
-textArea.value = message;
-document.body.appendChild(textArea);
-textArea.select();
-try {
-  document.execCommand('copy');
-  setCopyStatus(true);
-  setTimeout(() => setCopyStatus(false), 3000);
-} catch (err) {
-  console.error('Fallback copy failed', err);
-}
-document.body.removeChild(textArea);
-
-// 開啟 WhatsApp 分享
-const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
-window.open(url, '_blank');
-
-
-};
-
-// 身分選擇介面
-if (showMemberSelect) {
-return (
-
-
-
-
-🏠 HOMETASK
-
-請選擇您的身分開始累積家事點數
-
-
-{FAMILY_MEMBERS.map(name => {
-// 為不同成員客製化可愛的 Emoji 頭像
-let avatar = '👶';
-if (name === '媽媽') avatar = '👩';
-else if (name === '爸爸') avatar = '👨';
-else if (name === '皓皓') avatar = '👦';
-else if (name === '姨婆') avatar = '👵';
-
-          return (
-            <button
-              key={name}
-              onClick={() => handleSelectUser(name)}
-              className="flex items-center justify-between p-5 bg-slate-50 hover:bg-emerald-50 border border-slate-100 rounded-2xl transition-all group active:scale-95"
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-2xl shadow-sm border border-slate-100">
-                  {avatar}
-                </div>
-                <span className="text-lg font-bold text-slate-700">{name}</span>
-              </div>
-              <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-emerald-500" />
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  </div>
-);
-
-
-}
-
-return (
-
-{/* 頂部導航列 */}
-
-
-
-
-
-HOMETASK
-
-
-
-使用者
-{currentUserProfile}
-
-<button onClick={() => setShowMemberSelect(true)} className="p-2 text-slate-300 hover:text-slate-600">
-
-
-
-
-
-  <main className="max-w-md mx-auto p-4 space-y-6">
-    {activeTab === 'home' && (
-      <>
-        {/* 即時點數榜 */}
-        <div className="bg-slate-900 rounded-[2.5rem] p-6 text-white shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/20 rounded-full -mr-16 -mt-16 blur-2xl"></div>
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-lg font-bold flex items-center gap-2">
-              <Coins className="text-yellow-400" size={20} /> 即時點數榜
-            </h2>
-            <div className="px-3 py-1 bg-white/10 rounded-full text-[10px] font-bold uppercase tracking-wider">
-              {db ? 'Live Sync' : 'Local Sandbox'}
-            </div>
-          </div>
-          <div className="grid grid-cols-4 gap-2">
-            {FAMILY_MEMBERS.map(member => (
-              <div key={member} className="bg-white/5 rounded-2xl p-2 border border-white/10 flex flex-col items-center">
-                <p className="text-[11px] opacity-70 font-bold mb-1 truncate w-full text-center">{member}</p>
-                <p className="text-lg font-black text-emerald-400">${stats[member] || 0}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* 快速打卡區 (全新 21 項任務) */}
-        <section className="space-y-4">
-          <h3 className="font-black text-lg px-1 flex justify-between items-center">
-            <span>快速家事打卡</span>
-            <span className="text-xs text-slate-400 font-medium">點擊立刻累加點數</span>
-          </h3>
-          <div className="grid grid-cols-2 gap-3 max-h-[500px] overflow-y-auto pr-1">
-            {TASKS.map(task => (
-              <button
-                key={task.id}
-                onClick={() => handleAddLog(task)}
-                className="flex flex-col p-4 bg-white hover:border-emerald-200 border border-slate-100 rounded-3xl shadow-sm text-left transition-all active:scale-95 group"
-              >
-                <span className="text-3xl mb-3 group-hover:scale-110 transition-transform">{task.icon}</span>
-                <span className="font-bold text-slate-800 text-sm leading-tight truncate w-full">{task.name}</span>
-                <span className="text-xs font-black mt-1.5 px-2 py-0.5 rounded-full w-fit bg-emerald-50 text-emerald-600">
-                  +{task.points} 點
-                </span>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        {/* 最新動態 */}
-        <section className="space-y-4">
-          <div className="flex justify-between items-center px-1">
-            <h3 className="font-black text-lg">最新動態</h3>
-            <button onClick={() => setActiveTab('history')} className="text-emerald-600 text-xs font-bold">查看全部</button>
-          </div>
-          <div className="space-y-2">
-            {logs.slice(0, 5).map(log => (
-              <div key={log.id} className="bg-white p-4 rounded-2xl border border-slate-100 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-xl">
-                    {TASKS.find(t => t.id === log.taskId)?.icon || '✨'}
-                  </div>
-                  <div>
-                    <p className="font-bold text-sm text-slate-800">
-                      <span className="text-emerald-600">{log.userName}</span> 已完成 {log.taskName}
-                    </p>
-                    <p className="text-[10px] text-slate-400 font-medium">
-                      {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '剛剛'}
-                    </p>
-                  </div>
-                </div>
-                <span className="font-black text-emerald-500">
-                  +{log.points}
-                </span>
-              </div>
-            ))}
-            {logs.length === 0 && (
-              <p className="text-center text-slate-400 text-sm py-4">目前還沒有任何打卡紀錄喔，動起來吧！</p>
-            )}
-          </div>
-        </section>
-      </>
-    )}
-
-    {/* 歷史流水帳 */}
-    {activeTab === 'history' && (
-      <section className="space-y-4">
-        <h3 className="font-black text-xl px-1">歷史紀錄流水帳</h3>
-        <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
-          {logs.map(log => (
-            <div key={log.id} className="bg-white p-4 rounded-2xl border border-slate-100 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-xl">
-                  {TASKS.find(t => t.id === log.taskId)?.icon || '✨'}
-                </div>
-                <div>
-                  <p className="font-bold text-sm text-slate-800">{log.userName}: {log.taskName}</p>
-                  <p className="text-[10px] text-slate-400">
-                    {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString() : '剛剛'}
-                  </p>
-                </div>
-              </div>
-              <span className="font-black text-emerald-500">
-                +{log.points}
-              </span>
-            </div>
-          ))}
-          {logs.length === 0 && (
-            <p className="text-center text-slate-400 text-sm py-8">尚無紀錄</p>
-          )}
-        </div>
-      </section>
-    )}
-
-    {/* 結算報告與 WhatsApp 發送 */}
-    {activeTab === 'settle' && (
-      <section className="space-y-6">
-        <div className="text-center py-6">
-          <div className="w-20 h-20 bg-emerald-100 rounded-3xl flex items-center justify-center mx-auto text-emerald-600 mb-4 shadow-md shadow-emerald-100">
-            <CalendarDays size={40} />
-          </div>
-          <h3 className="font-black text-2xl">本月結算報告</h3>
-          <p className="text-slate-500 text-sm mt-2">{new Date().getMonth() + 1}月家事貢獻榜</p>
-        </div>
-
-        <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-100 space-y-6">
-          {FAMILY_MEMBERS.map(member => {
-            const total = currentMonthLogs.filter(l => l.userName === member).reduce((sum, l) => sum + l.points, 0);
-            return (
-              <div key={member} className="flex justify-between items-center group">
-                <div className="flex items-center gap-3">
-                  <div className="w-2.5 h-8 bg-emerald-100 rounded-full group-hover:bg-emerald-500 transition-colors"></div>
-                  <span className="font-bold text-slate-700 text-lg">{member}</span>
-                </div>
-                <span className="font-black text-emerald-600 text-2xl">${total} <span className="text-sm font-medium text-slate-400">點</span></span>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="space-y-3">
-          <button
-            onClick={handleShareToWhatsApp}
-            className="w-full bg-[#25D366] hover:bg-[#20ba59] text-white font-black py-5 rounded-[2rem] flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"
-          >
-            <Share2 size={24} />
-            分享至家族 WhatsApp 群組
-          </button>
-          
-          {copyStatus && (
-            <div className="flex items-center justify-center gap-2 text-emerald-600 font-bold text-sm animate-bounce">
-              <Check size={16} /> 報告已複製到剪貼簿！若沒自動跳轉可直接貼上
-            </div>
-          )}
-        </div>
-      </section>
-    )}
-  </main>
-
-  {/* 底部導航欄 */}
-  <nav className="fixed bottom-6 left-6 right-6 bg-slate-900/95 backdrop-blur-xl rounded-[2.5rem] px-8 py-4 flex justify-around items-center z-30 shadow-2xl">
-    <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center transition-all ${activeTab === 'home' ? 'text-emerald-400 scale-110' : 'text-slate-500'}`}>
-      <PlusCircle size={26} />
-      <span className="text-[10px] font-bold mt-1">打卡</span>
-    </button>
-    <button onClick={() => setActiveTab('history')} className={`flex flex-col items-center transition-all ${activeTab === 'history' ? 'text-emerald-400 scale-110' : 'text-slate-500'}`}>
-      <History size={26} />
-      <span className="text-[10px] font-bold mt-1">紀錄</span>
-    </button>
-    <button onClick={() => setActiveTab('settle')} className={`flex flex-col items-center transition-all ${activeTab === 'settle' ? 'text-emerald-400 scale-110' : 'text-slate-500'}`}>
-      <Share2 size={26} />
-      <span className="text-[10px] font-bold mt-1">結算</span>
-    </button>
-  </nav>
-
-  <style>{`
-    body { -webkit-tap-highlight-color: transparent; user-select: none; background-color: #f8fafc; }
+    
+    /* Smooth Scrollbar for Tasks Grid */
     ::-webkit-scrollbar {
-      width: 5px;
+      width: 6px;
+      height: 6px;
     }
-    ::-webkit-
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+
+    /* Custom Animations */
+    @keyframes pulse-gentle {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.03); }
+    }
+    .animate-pulse-gentle {
+      animation: pulse-gentle 3s infinite ease-in-out;
+    }
+    
+    /* Active scale effect */
+    .active-scale:active {
+      transform: scale(0.95);
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen pb-32">
+
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    // --- 預設家事資料群組 ---
+    const DEFAULT_TASKS = [
+      // 烹飪與餐廚
+      { id: 'cook', name: '煮飯', points: 30, icon: '👨‍🍳', category: 'kitchen' },
+      { id: 'dishes', name: '洗碗', points: 20, icon: '🍽️', category: 'kitchen' },
+      { id: 'cut_fruit', name: '切水果', points: 10, icon: '🍎', category: 'kitchen' },
+      
+      // 衣物整理
+      { id: 'laundry_wash', name: '洗衣服', points: 10, icon: '🧺', category: 'clothes' },
+      { id: 'laundry_hang', name: '晾衣服', points: 10, icon: '👕', category: 'clothes' },
+      { id: 'laundry_fold', name: '折疊衣服', points: 20, icon: '👔', category: 'clothes' },
+      
+      // 空間整理
+      { id: 'tidy_room', name: '收拾房間', points: 25, icon: '🧹', category: 'cleaning' },
+      { id: 'tidy_living', name: '收拾客廳', points: 25, icon: '🛋️', category: 'cleaning' },
+      { id: 'vacuum', name: '吸塵拖地', points: 20, icon: '🌀', category: 'cleaning' },
+      { id: 'wash_toilet', name: '洗廁所', points: 40, icon: '🚽', category: 'cleaning' },
+      { id: 'wash_carpet', name: '洗地毯', points: 30, icon: '🧼', category: 'cleaning' },
+      
+      // 寵物與水族
+      { id: 'feed_fish_turtle', name: '餵魚&龜', points: 10, icon: '🐢', category: 'pets' },
+      { id: 'feed_birds', name: '餵鳥', points: 10, icon: '🐦', category: 'pets' },
+      { id: 'clean_parrot', name: '清理鸚鵡糞便', points: 20, icon: '🦜', category: 'pets' },
+      { id: 'clean_fish_tank', name: '清理魚缸', points: 30, icon: '🐠', category: 'pets' },
+      
+      // 戶外與車輛
+      { id: 'trash', name: '倒垃圾', points: 20, icon: '🗑️', category: 'outdoor' },
+      { id: 'sweep_leaves', name: '掃落葉', points: 15, icon: '🍂', category: 'outdoor' },
+      { id: 'wash_garden', name: '洗花園', points: 30, icon: '🏡', category: 'outdoor' },
+      { id: 'wash_car', name: '洗車', points: 50, icon: '🚗', category: 'outdoor' },
+      { id: 'water_flowers', name: '澆花', points: 10, icon: '💧', category: 'outdoor' },
+      
+      // 其他
+      { id: 'others', name: '其他家事', points: 15, icon: '✨', category: 'other' }
+    ];
+
+    const CATEGORIES = [
+      { id: 'all', name: '全部家事', icon: '🏠' },
+      { id: 'kitchen', name: '餐廚煮食', icon: '🍳' },
+      { id: 'clothes', name: '衣物整理', icon: '👕' },
+      { id: 'cleaning', name: '居家清潔', icon: '🧹' },
+      { id: 'pets', name: '寵物照顧', icon: '🐾' },
+      { id: 'outdoor', name: '戶外車輛', icon: '🚗' },
+      { id: 'other', name: '其它項目', icon: '✨' }
+    ];
+
+    const DEFAULT_MEMBERS = ["皓皓", "爸爸", "媽媽", "姨婆"];
+
+    // 擬真音效產生器 (使用 Web Audio API，不需加載外部音檔)
+    const playSuccessSound = () => {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        // 第一個高音
+        const osc1 = audioCtx.createOscillator();
+        const gain1 = audioCtx.createGain();
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+        osc1.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.15); // A5
+        gain1.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        gain1.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        
+        osc1.connect(gain1);
+        gain1.connect(audioCtx.destination);
+        
+        osc1.start();
+        osc1.stop(audioCtx.currentTime + 0.3);
+      } catch (e) {
+        console.log("Audio play blocked or not supported");
+      }
+    };
+
+    function App() {
+      // --- 狀態管理 ---
+      const [firebaseConfigInput, setFirebaseConfigInput] = useState(() => {
+        return localStorage.getItem('housework_firebase_config') || '';
+      });
+      const [dbState, setDbState] = useState({ auth: null, db: null, active: false });
+      const [user, setUser] = useState(null);
+      
+      const [familyMembers, setFamilyMembers] = useState(() => {
+        const saved = localStorage.getItem('housework_members_v2');
+        return saved ? JSON.parse(saved) : DEFAULT_MEMBERS;
+      });
+      
+      const [customTasks, setCustomTasks] = useState(() => {
+        const saved = localStorage.getItem('housework_tasks_v2');
+        return saved ? JSON.parse(saved) : DEFAULT_TASKS;
+      });
+
+      const [currentUserProfile, setCurrentUserProfile] = useState(() => {
+        return localStorage.getItem('housework_user_v2') || null;
+      });
+
+      const [logs, setLogs] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [activeTab, setActiveTab] = useState('home');
+      const [selectedCategory, setSelectedCategory] = useState('all');
+      const [showMemberSelect, setShowMemberSelect] = useState(false);
+      const [copyStatus, setCopyStatus] = useState(false);
+      const [toast, setToast] = useState(null);
+      const [soundEnabled, setSoundEnabled] = useState(true);
+
+      // 管理設置編輯
+      const [newMemberName, setNewMemberName] = useState('');
+      const [newConfigTemp, setNewConfigTemp] = useState(firebaseConfigInput);
+      const [showSettingsModal, setShowSettingsModal] = useState(false);
+      const [showPwaGuide, setShowPwaGuide] = useState(false);
+
+      // --- Toast 提醒訊息 ---
+      const showToast = (message, type = 'success') => {
+        setToast({ message, type });
+        setTimeout(() => setToast(null), 3000);
+      };
+
+      // 1. Firebase 聯網/本地 雙模式動態載入
+      useEffect(() => {
+        let unsubscribeAuth = null;
+        let unsubscribeLogs = null;
+
+        if (firebaseConfigInput) {
+          try {
+            const config = JSON.parse(firebaseConfigInput);
+            
+            // 避免重複初始化
+            let appInstance;
+            if (firebase.apps.length === 0) {
+              appInstance = firebase.initializeApp(config);
+            } else {
+              appInstance = firebase.app();
+            }
+
+            const activeAuth = firebase.auth();
+            const activeDb = firebase.firestore();
+            const appId = config.projectId || 'housework-pwa-v2';
+
+            setDbState({ auth: activeAuth, db: activeDb, active: true });
+
+            // 匿名登入
+            activeAuth.signInAnonymously().catch(err => {
+              console.error("Firebase auth error:", err);
+              showToast("雲端登入失敗，自動切換至本地存儲模式", "error");
+            });
+
+            unsubscribeAuth = activeAuth.onAuthStateChanged((u) => {
+              setUser(u);
+              if (!currentUserProfile) {
+                setShowMemberSelect(true);
+              }
+            });
+
+            // 訂閱雲端資料
+            const logsRef = activeDb.collection('artifacts').doc(appId).collection('logs');
+            unsubscribeLogs = logsRef.onSnapshot((snapshot) => {
+              const cloudLogs = snapshot.docs.map(doc => {
+                const data = doc.data();
+                return {
+                  id: doc.id,
+                  ...data,
+                  // 轉換 timestamp 為可讀格式或維持 Date
+                  timestamp: data.timestamp ? { toDate: () => data.timestamp.toDate() } : null
+                };
+              });
+              // 按時間由新到舊排序
+              cloudLogs.sort((a, b) => {
+                const timeA = a.timestamp ? a.timestamp.toDate().getTime() : new Date(a.createdAt).getTime();
+                const timeB = b.timestamp ? b.timestamp.toDate().getTime() : new Date(b.createdAt).getTime();
+                return timeB - timeA;
+              });
+              setLogs(cloudLogs);
+              setLoading(false);
+            }, (err) => {
+              console.error("Firestore Subscribe Error:", err);
+              loadLocalLogs();
+            });
+
+          } catch (e) {
+            console.error("Firebase Config Parsing Error:", e);
+            showToast("Firebase 設定格式有誤，已自動切換為本地沙盒模式", "error");
+            loadLocalLogs();
+          }
+        } else {
+          // 沒有 Firebase，直接加載 LocalStorage
+          loadLocalLogs();
+        }
+
+        function loadLocalLogs() {
+          setDbState({ auth: null, db: null, active: false });
+          const cachedLogs = localStorage.getItem('housework_logs_v2');
+          if (cachedLogs) {
+            try {
+              const parsed = JSON.parse(cachedLogs);
+              // 將原本是 String 的 createdAt 還原成可調用 toDate() 的物件結構
+              const mapped = parsed.map(log => ({
+                ...log,
+                timestamp: { toDate: () => new Date(log.createdAt) }
+              }));
+              setLogs(mapped);
+            } catch (err) {
+              setLogs([]);
+            }
+          }
+          setLoading(false);
+          if (!currentUserProfile) {
+            setShowMemberSelect(true);
+          }
+        }
+
+        return () => {
+          if (unsubscribeAuth) unsubscribeAuth();
+          if (unsubscribeLogs) unsubscribeLogs();
+        };
+      }, [firebaseConfigInput]);
+
+      // 2. 新增打卡紀錄
+      const handleAddLog = async (task) => {
+        if (!currentUserProfile) {
+          showToast("請先選擇您的身分！", "error");
+          setShowMemberSelect(true);
+          return;
+        }
+
+        const newLog = {
+          userName: currentUserProfile,
+          taskId: task.id,
+          taskName: task.name,
+          points: task.points,
+          createdAt: new Date().toISOString()
+        };
+
+        if (soundEnabled) {
+          playSuccessSound();
+        }
+
+        if (navigator.vibrate) {
+          navigator.vibrate([60, 40, 60]);
+        }
+
+        if (dbState.active && dbState.db) {
+          try {
+            const appId = JSON.parse(firebaseConfigInput).projectId || 'housework-pwa-v2';
+            const logsRef = dbState.db.collection('artifacts').doc(appId).collection('logs');
+            await logsRef.add({
+              ...newLog,
+              timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            showToast(`打卡成功！${task.icon} ${task.name} +${task.points} 點`);
+          } catch (err) {
+            console.error("雲端打卡失敗，嘗試寫入本地：", err);
+            saveToLocalFallback(newLog, task);
+          }
+        } else {
+          saveToLocalFallback(newLog, task);
+        }
+      };
+
+      const saveToLocalFallback = (newLog, task) => {
+        const localLog = {
+          id: Date.now().toString(),
+          ...newLog,
+          timestamp: { toDate: () => new Date() }
+        };
+        const updatedLogs = [localLog, ...logs];
+        setLogs(updatedLogs);
+        
+        // 轉為普通 JSON 格式儲存（避免儲存 circular 物件）
+        const storageFriendly = updatedLogs.map(l => ({
+          id: l.id,
+          userName: l.userName,
+          taskId: l.taskId,
+          taskName: l.taskName,
+          points: l.points,
+          createdAt: l.createdAt
+        }));
+        localStorage.setItem('housework_logs_v2', JSON.stringify(storageFriendly));
+        showToast(`本地打卡成功！${task.icon} ${task.name} +${task.points} 點`);
+      };
+
+      // 3. 刪除打卡紀錄 (限管理)
+      const handleDeleteLog = (id) => {
+        if (dbState.active && dbState.db) {
+          try {
+            const appId = JSON.parse(firebaseConfigInput).projectId || 'housework-pwa-v2';
+            dbState.db.collection('artifacts').doc(appId).collection('logs').doc(id).delete();
+            showToast("已刪除該筆打卡紀錄！", "info");
+          } catch (err) {
+            showToast("雲端刪除失敗", "error");
+          }
+        } else {
+          const updated = logs.filter(l => l.id !== id);
+          setLogs(updated);
+          const storageFriendly = updated.map(l => ({
+            id: l.id,
+            userName: l.userName,
+            taskId: l.taskId,
+            taskName: l.taskName,
+            points: l.points,
+            createdAt: l.createdAt
+          }));
+          localStorage.setItem('housework_logs_v2', JSON.stringify(storageFriendly));
+          showToast("已從本地刪除該筆打卡紀錄！", "info");
+        }
+      };
+
+      // 4. 計算本月與總和數據
+      const stats = useMemo(() => {
+        const res = {};
+        familyMembers.forEach(m => res[m] = 0);
+        logs.forEach(log => {
+          if (res[log.userName] !== undefined) {
+            res[log.userName] += (log.points || 0);
+          }
+        });
+        return res;
+      }, [logs, familyMembers]);
+
+      const currentMonthLogs = useMemo(() => {
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+        return logs.filter(log => {
+          const d = log.timestamp?.toDate ? log.timestamp.toDate() : new Date(log.createdAt);
+          return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+        });
+      }, [logs]);
+
+      const currentMonthStats = useMemo(() => {
+        const res = {};
+        familyMembers.forEach(m => res[m] = 0);
+        currentMonthLogs.forEach(log => {
+          if (res[log.userName] !== undefined) {
+            res[log.userName] += (log.points || 0);
+          }
+        });
+        return res;
+      }, [currentMonthLogs, familyMembers]);
+
+      // 5. 身分切換
+      const handleSelectUser = (name) => {
+        setCurrentUserProfile(name);
+        localStorage.setItem('housework_user_v2', name);
+        setShowMemberSelect(false);
+        showToast(`歡迎回來，${name}！`, "info");
+      };
+
+      const handleLogOut = () => {
+        setCurrentUserProfile(null);
+        localStorage.removeItem('housework_user_v2');
+        setShowMemberSelect(true);
+      };
+
+      // 6. 儲存設定
+      const handleSaveSettings = () => {
+        try {
+          if (newConfigTemp.trim()) {
+            JSON.parse(newConfigTemp); // 驗證 JSON 格式
+            localStorage.setItem('housework_firebase_config', newConfigTemp);
+            setFirebaseConfigInput(newConfigTemp);
+            showToast("雲端連線配置成功！系統正在重新同步...", "success");
+          } else {
+            localStorage.removeItem('housework_firebase_config');
+            setFirebaseConfigInput('');
+            showToast("已切換為全本地儲存模式", "info");
+          }
+          setShowSettingsModal(false);
+        } catch (e) {
+          showToast("Firebase JSON 格式不正確，請重新確認！", "error");
+        }
+      };
+
+      // 7. 新增/刪除成員
+      const handleAddMember = () => {
+        if (!newMemberName.trim()) return;
+        if (familyMembers.includes(newMemberName.trim())) {
+          showToast("此成員名稱已存在！", "error");
+          return;
+        }
+        const updated = [...familyMembers, newMemberName.trim()];
+        setFamilyMembers(updated);
+        localStorage.setItem('housework_members_v2', JSON.stringify(updated));
+        setNewMemberName('');
+        showToast(`成功新增家庭成員：${newMemberName}`);
+      };
+
+      const handleRemoveMember = (name) => {
+        const updated = familyMembers.filter(m => m !== name);
+        setFamilyMembers(updated);
+        localStorage.setItem('housework_members_v2', JSON.stringify(updated));
+        if (currentUserProfile === name) {
+          handleLogOut();
+        }
+        showToast(`已移除成員：${name}`, "info");
+      };
+
+      // 8. WhatsApp 分享
+      const handleShareToWhatsApp = () => {
+        const now = new Date();
+        const monthStr = `${now.getFullYear()}年${now.getMonth() + 1}月`;
+        let message = `🏠 *${monthStr} 家事勞動結算單* \n\n`;
+
+        familyMembers.forEach(member => {
+          const mLogs = currentMonthLogs.filter(l => l.userName === member);
+          const total = mLogs.reduce((sum, l) => sum + l.points, 0);
+          message += `👤 *${member}* : 累計 $${total} 點\n`;
+          mLogs.slice(0, 3).forEach(l => {
+            message += `   - ${l.taskName} (+$${l.points})\n`;
+          });
+          if (mLogs.length > 3) message += `   ...以及其它 ${mLogs.length - 3} 項家事\n`;
+          message += `\n`;
+        });
+
+        message += `📅 統計截止: ${new Date().toLocaleString()}\n`;
+        message += `💪 大家辛苦了！一起守護乾淨溫馨的家園！`;
+
+        // 複製到剪貼簿 (相容性佳的後備方案)
+        const textArea = document.createElement("textarea");
+        textArea.value = message;
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+          document.execCommand('copy');
+          setCopyStatus(true);
+          setTimeout(() => setCopyStatus(false), 3000);
+        } catch (err) {
+          console.error('Copy failed', err);
+        }
+        document.body.removeChild(textArea);
+
+        // 嘗試打開 WhatsApp
+        const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
+        window.open(url, '_blank');
+      };
+
+      // 篩選家事列表
+      const filteredTasks = useMemo(() => {
+        if (selectedCategory === 'all') return customTasks;
+        return customTasks.filter(t => t.category === selectedCategory);
+      }, [selectedCategory, customTasks]);
+
+      // 取得成員對應頭像
+      const getAvatar = (name) => {
+        if (name.includes('媽')) return '👩';
+        if (name.includes('爸')) return '👨';
+        if (name.includes('婆') || name.includes('奶')) return '👵';
+        if (name.includes('皓') || name.includes('子') || name.includes('兒')) return '👦';
+        return '👶';
+      };
+
+      return (
+        <div className="max-w-md mx-auto min-h-screen bg-slate-50 relative pb-24 shadow-md">
+          {/* Toast Notification */}
+          {toast && (
+            <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 z-50 px-4 py-3 rounded-full shadow-2xl flex items-center gap-2 text-sm font-bold transition-all duration-300 ${
+              toast.type === 'error' ? 'bg-rose-500 text-white' : 
+              toast.type === 'info' ? 'bg-amber-500 text-white' : 'bg-emerald-600 text-white'
+            }`}>
+              <span>{toast.message}</span>
+            </div>
+          )}
+
+          {}
+          {/* 頂部導航列 */}
+          <header className="sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-100 px-6 py-4 flex justify-between items-center z-40">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">🏠</span>
+              <div>
+                <h1 className="text-xl font-black text-slate-800 tracking-wider">HOMETASK</h1>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Family Point System</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {/* PWA 說明按鈕 */}
+              <button 
+                onClick={() => setShowPwaGuide(true)}
+                className="w-8 h-8 rounded-full bg-indigo-50 hover:bg-indigo-100 flex items-center justify-center text-indigo-600 transition-colors"
+                title="下載手機App教學"
+              >
+                📲
+              </button>
+
+              {/* 系統設定按鈕 */}
+              <button 
+                onClick={() => setShowSettingsModal(true)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors"
+                title="系統設定"
+              >
+                ⚙️
+              </button>
+
+              {/* 當前使用者頭像 */}
+              {currentUserProfile && (
+                <button 
+                  onClick={() => setShowMemberSelect(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 rounded-full border border-emerald-100 transition-all"
+                >
+                  <span className="text-base">{getAvatar(currentUserProfile)}</span>
+                  <span className="text-xs font-bold text-emerald-800">{currentUserProfile}</span>
+                </button>
+              )}
+            </div>
+          </header>
+
+          {/* 主要視窗內容 */}
+          <main className="px-4 py-4 space-y-5">
+            
+            {}
+            {/* === TAB 1: 快速打卡首頁 === */}
+            {activeTab === 'home' && (
+              <>
+                {/* 狀態公告與雲端指標 */}
+                <div className="flex justify-between items-center px-1 text-xs">
+                  <div className="flex items-center gap-1.5 font-bold text-slate-400">
+                    <span>模式:</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] ${dbState.active ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}`}>
+                      {dbState.active ? '● 雲端同步中' : '○ 本地沙盒模式'}
+                    </span>
+                  </div>
+                  <button 
+                    onClick={() => setSoundEnabled(!soundEnabled)}
+                    className={`font-semibold transition-colors ${soundEnabled ? 'text-indigo-600' : 'text-slate-400'}`}
+                  >
+                    {soundEnabled ? '🔊 打卡音效: 已開' : '🔇 打卡音效: 已關'}
+                  </button>
+                </div>
+
+                {/* 點數榜儀表板 */}
+                <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 rounded-[2rem] p-6 text-white shadow-xl relative overflow-hidden animate-pulse-gentle">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
+                  <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-indigo-500/10 rounded-full blur-3xl"></div>
+                  
+                  <div className="flex justify-between items-center mb-5">
+                    <h2 className="text-sm font-extrabold tracking-widest text-slate-300 flex items-center gap-1.5">
+                      🏆 家庭點數排行榜
+                    </h2>
+                    <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full uppercase tracking-wider text-emerald-400 font-mono">
+                      {new Date().getMonth() + 1}月累計
+                    </span>
+                  </div>
+
+                  {/* 成員點數列表 */}
+                  <div className="grid grid-cols-4 gap-2">
+                    {familyMembers.map(member => (
+                      <div key={member} className="bg-white/5 backdrop-blur-sm rounded-2xl p-2.5 border border-white/10 flex flex-col items-center justify-between text-center relative group">
+                        <span className="text-xl mb-1">{getAvatar(member)}</span>
+                        <p className="text-[10px] text-slate-300 font-bold tracking-wide truncate w-full">{member}</p>
+                        <p className="text-base font-black text-emerald-400 mt-1">${currentMonthStats[member] || 0}</p>
+                        <span className="text-[8px] text-slate-400">總累計: ${stats[member] || 0}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 家事大廳 (分類篩選與打卡) */}
+                <section className="space-y-4">
+                  <div className="flex flex-col gap-2">
+                    <h3 className="font-extrabold text-lg text-slate-800 px-1">快速打卡登記</h3>
+                    
+                    {/* 分類橫向滾動列 */}
+                    <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-none">
+                      {CATEGORIES.map(cat => (
+                        <button
+                          key={cat.id}
+                          onClick={() => setSelectedCategory(cat.id)}
+                          className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all active-scale ${
+                            selectedCategory === cat.id 
+                              ? 'bg-emerald-600 text-white shadow-md shadow-emerald-100' 
+                              : 'bg-white text-slate-600 border border-slate-100 hover:bg-slate-50'
+                          }`}
+                        >
+                          <span>{cat.icon}</span>
+                          <span>{cat.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 家事卡片列表 */}
+                  <div className="grid grid-cols-2 gap-3 max-h-[500px] overflow-y-auto pr-1">
+                    {filteredTasks.map(task => (
+                      <button
+                        key={task.id}
+                        onClick={() => handleAddLog(task)}
+                        className="flex flex-col justify-between p-4 bg-white border border-slate-100/80 rounded-2xl shadow-sm hover:shadow-md hover:border-emerald-200 text-left transition-all active-scale group relative overflow-hidden"
+                      >
+                        <div className="absolute top-1 right-2 text-2xl opacity-10 group-hover:scale-125 transition-transform duration-300">
+                          {task.icon}
+                        </div>
+                        <div className="text-3xl mb-3">{task.icon}</div>
+                        <div>
+                          <p className="font-bold text-slate-700 text-sm leading-tight truncate w-full">{task.name}</p>
+                          <span className="inline-block text-[10px] font-black mt-2 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100">
+                            +{task.points} 點
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                {/* 即時最新動態 */}
+                <section className="space-y-3">
+                  <div className="flex justify-between items-center px-1">
+                    <h3 className="font-extrabold text-base text-slate-800">最新打卡動態</h3>
+                    <button 
+                      onClick={() => setActiveTab('history')} 
+                      className="text-indigo-600 hover:text-indigo-800 text-xs font-bold"
+                    >
+                      查看歷史紀錄
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    {logs.slice(0, 3).map(log => (
+                      <div key={log.id} className="bg-white p-3 rounded-xl border border-slate-100 flex items-center justify-between shadow-xs">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 bg-slate-50 rounded-lg flex items-center justify-center text-lg">
+                            {customTasks.find(t => t.id === log.taskId)?.icon || '✨'}
+                          </div>
+                          <div>
+                            <p className="font-bold text-xs text-slate-700">
+                              <span className="text-emerald-600 font-extrabold">{log.userName}</span> 完成了 {log.taskName}
+                            </p>
+                            <p className="text-[9px] text-slate-400 font-semibold mt-0.5">
+                              {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '剛剛'}
+                            </p>
+                          </div>
+                        </div>
+                        <span className="font-black text-xs text-emerald-500 bg-emerald-50 px-2 py-1 rounded-md">
+                          +{log.points} 點
+                        </span>
+                      </div>
+                    ))}
+                    {logs.length === 0 && (
+                      <div className="text-center py-6 bg-white rounded-2xl border border-dashed border-slate-200 text-slate-400 text-xs">
+                        目前還沒有任何打卡紀錄，快去洗個碗累積點數吧！ 🧼
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </>
+            )}
+
+            {}
+            {/* === TAB 2: 歷史紀錄流水帳 === */}
+            {activeTab === 'history' && (
+              <section className="space-y-4">
+                <div className="flex justify-between items-center px-1">
+                  <h3 className="font-extrabold text-xl text-slate-800">歷史紀錄流水帳</h3>
+                  <p className="text-[10px] text-slate-400 font-bold">目前總計: {logs.length} 筆紀錄</p>
+                </div>
+
+                <div className="space-y-2 max-h-[550px] overflow-y-auto pr-1">
+                  {logs.map(log => (
+                    <div key={log.id} className="bg-white p-4 rounded-xl border border-slate-100 flex items-center justify-between shadow-xs relative group">
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">{getAvatar(log.userName)}</span>
+                        <div>
+                          <p className="font-bold text-xs text-slate-700">
+                            <span className="text-indigo-600 font-extrabold">{log.userName}</span>: {log.taskName}
+                          </p>
+                          <p className="text-[9px] text-slate-400 mt-1">
+                            {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString() : '剛剛'}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <span className="font-black text-sm text-emerald-500">
+                          +{log.points} 點
+                        </span>
+                        
+                        {/* 刪除按鈕 */}
+                        <button 
+                          onClick={() => {
+                            if(window.confirm(`確定要刪除這筆紀錄嗎？`)) {
+                              handleDeleteLog(log.id);
+                            }
+                          }}
+                          className="text-rose-400 hover:text-rose-600 p-1 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {logs.length === 0 && (
+                    <div className="text-center py-12 bg-white rounded-3xl border border-slate-100 text-slate-400 text-sm">
+                      ✨ 尚無任何紀錄，快開始第一筆打卡吧！
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+
+            {}
+            {/* === TAB 3: 結算統計與分享 === */}
+            {activeTab === 'settle' && (
+              <section className="space-y-6">
+                <div className="text-center py-6">
+                  <div className="w-20 h-20 bg-emerald-50 rounded-[2rem] border border-emerald-100 flex items-center justify-center mx-auto text-emerald-600 mb-4 shadow-md">
+                    📅
+                  </div>
+                  <h3 className="font-black text-2xl text-slate-800">本月家事結算報告</h3>
+                  <p className="text-slate-400 text-xs mt-1.5">{new Date().getMonth() + 1}月家事貢獻與點數榜</p>
+                </div>
+
+                {/* 貢獻排行卡片 */}
+                <div className="bg-white rounded-[2rem] p-6 shadow-xs border border-slate-100 space-y-5">
+                  <h4 className="font-bold text-sm text-slate-400 uppercase tracking-widest border-b border-slate-50 pb-2">本月實得點數</h4>
+                  {familyMembers.map(member => {
+                    const total = currentMonthStats[member] || 0;
+                    return (
+                      <div key={member} className="flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl">{getAvatar(member)}</span>
+                          <span className="font-extrabold text-slate-700">{member}</span>
+                        </div>
+                        <div className="flex items-baseline gap-1">
+                          <span className="font-black text-emerald-600 text-2xl">${total}</span>
+                          <span className="text-[10px] font-bold text-slate-400">點</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* 分享與備份按鈕 */}
+                <div className="space-y-3">
+                  <button
+                    onClick={handleShareToWhatsApp}
+                    className="w-full bg-[#25D366] hover:bg-[#20ba59] text-white font-extrabold py-4 rounded-full flex items-center justify-center gap-2.5 shadow-lg shadow-emerald-100 transition-all active-scale"
+                  >
+                    💬 分享至家庭 WhatsApp 群組
+                  </button>
+                  
+                  {copyStatus && (
+                    <p className="text-center text-xs font-bold text-emerald-600 animate-bounce">
+                      ✓ 已成功複製結算報告至剪貼簿！若無跳轉請直接在對話框貼上即可！
+                    </p>
+                  )}
+                </div>
+              </section>
+            )}
+          </main>
+
+          {}
+          {/* === 彈出視窗 1: 身分選擇介面 === */}
+          {showMemberSelect && (
+            <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-end justify-center">
+              <div className="bg-white w-full max-w-md rounded-t-[2.5rem] p-6 space-y-6 shadow-2xl animate-fade-in">
+                <div className="text-center space-y-1">
+                  <span className="text-3xl">👋</span>
+                  <h3 className="text-xl font-black text-slate-800">您是哪位家庭成員？</h3>
+                  <p className="text-slate-400 text-xs font-semibold">選擇身分以累計個人專屬家事點數</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  {familyMembers.map(name => (
+                    <button
+                      key={name}
+                      onClick={() => handleSelectUser(name)}
+                      className={`flex flex-col items-center justify-center p-4 rounded-2xl border transition-all active-scale ${
+                        currentUserProfile === name
+                          ? 'bg-emerald-50 border-emerald-400 text-emerald-700 font-extrabold'
+                          : 'bg-slate-50 border-slate-100 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span className="text-4xl mb-2">{getAvatar(name)}</span>
+                      <span className="text-sm font-bold">{name}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="pt-2">
+                  <button 
+                    onClick={() => setShowMemberSelect(false)}
+                    className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-3 rounded-full text-xs transition-colors"
+                  >
+                    取消
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {}
+          {/* === 彈出視窗 2: 系統設定 === */}
+          {showSettingsModal && (
+            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white w-full max-w-sm rounded-[2rem] p-6 space-y-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+                  <h3 className="font-extrabold text-base text-slate-800">⚙️ 系統設定中心</h3>
+                  <button onClick={() => { setNewConfigTemp(firebaseConfigInput); setShowSettingsModal(false); }} className="text-slate-400">✕</button>
+                </div>
+
+                {/* 1. 雲端資料庫連結 */}
+                <div className="space-y-2">
+                  <h4 className="font-bold text-xs text-indigo-600">📡 連接雲端 Firebase (選填)</h4>
+                  <p className="text-[10px] text-slate-400">
+                    不填寫時，數據儲存在手機瀏覽器。貼上 Firebase Config JSON，即可讓全家人在不同手機看見同一個排行榜！
+                  </p>
+                  <textarea 
+                    value={newConfigTemp}
+                    onChange={(e) => setNewConfigTemp(e.target.value)}
+                    placeholder='{"apiKey": "...", "projectId": "...", ...}'
+                    className="w-full h-24 p-2 border border-slate-200 rounded-xl text-[10px] font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                  ></textarea>
+                </div>
+
+                {/* 2. 家庭成員管理 */}
+                <div className="space-y-3">
+                  <h4 className="font-bold text-xs text-indigo-600">👥 家庭成員管理</h4>
+                  
+                  {/* 新增成員 */}
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      value={newMemberName}
+                      onChange={(e) => setNewMemberName(e.target.value)}
+                      placeholder="輸入姓名..."
+                      className="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-xs"
+                    />
+                    <button 
+                      onClick={handleAddMember}
+                      className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold active-scale"
+                    >
+                      新增成員
+                    </button>
+                  </div>
+
+                  {/* 現有成員列表 */}
+                  <div className="flex flex-wrap gap-2">
+                    {familyMembers.map(m => (
+                      <div key={m} className="flex items-center gap-1 px-2.5 py-1 bg-slate-50 border border-slate-100 rounded-full text-[10px] font-bold text-slate-600">
+                        <span>{getAvatar(m)} {m}</span>
+                        <button onClick={() => handleRemoveMember(m)} className="text-rose-400 font-bold hover:text-rose-600 ml-1">×</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 3. 儲存與清除按鈕 */}
+                <div className="pt-4 border-t border-slate-100 flex gap-2">
+                  <button 
+                    onClick={() => {
+                      if(window.confirm('確定要清空本地的所有打卡紀錄嗎？(不會影響雲端數據)')) {
+                        localStorage.removeItem('housework_logs_v2');
+                        setLogs([]);
+                        showToast("已清空本地歷史紀錄！", "info");
+                      }
+                    }}
+                    className="bg-rose-50 text-rose-600 text-[10px] font-bold px-3 py-2.5 rounded-xl border border-rose-100"
+                  >
+                    ⚠️ 清除本地歷史
+                  </button>
+                  <button 
+                    onClick={handleSaveSettings}
+                    className="flex-1 bg-indigo-600 text-white text-[11px] font-bold py-2.5 rounded-xl transition-colors text-center"
+                  >
+                    儲存系統配置
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {}
+          {/* === 彈出視窗 3: PWA 下載手機案內 === */}
+          {showPwaGuide && (
+            <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-6 space-y-5 shadow-2xl relative">
+                <button 
+                  onClick={() => setShowPwaGuide(false)} 
+                  className="absolute top-4 right-4 w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold"
+                >
+                  ✕
+                </button>
+                
+                <div className="text-center space-y-1">
+                  <span className="text-4xl">📲</span>
+                  <h3 className="text-lg font-black text-slate-800">下載 HOMETASK 手機 App</h3>
+                  <p className="text-xs text-slate-400">不需要任何應用商店，直接安裝到手機桌面！</p>
+                </div>
+
+                <div className="space-y-4 text-xs font-semibold">
+                  {/* Apple iOS 步驟 */}
+                  <div className="p-3 bg-amber-50/50 rounded-2xl border border-amber-100 space-y-1.5">
+                    <p className="text-amber-800 font-extrabold flex items-center gap-1 text-xs">
+                      🍎 Apple iOS (Safari 瀏覽器)
+                    </p>
+                    <ol className="list-decimal list-inside text-slate-600 space-y-1 text-[11px] leading-relaxed">
+                      <li>使用 Safari 打開此網頁</li>
+                      <li>點擊瀏覽器底部的「<b>分享</b>」圖示 <span className="bg-white border px-1 rounded">⎋</span></li>
+                      <li>滑動選單並點選「<b>加入主畫面</b>」</li>
+                    </ol>
+                  </div>
+
+                  {/* Android 步驟 */}
+                  <div className="p-3 bg-blue-50/50 rounded-2xl border border-blue-100 space-y-1.5">
+                    <p className="text-blue-800 font-extrabold flex items-center gap-1 text-xs">
+                      🤖 Android (Chrome 瀏覽器)
+                    </p>
+                    <ol className="list-decimal list-inside text-slate-600 space-y-1 text-[11px] leading-relaxed">
+                      <li>使用 Chrome 瀏覽器開啟本頁</li>
+                      <li>點選右上角「<b>三點選單</b>」鍵</li>
+                      <li>選擇「<b>安裝應用程式</b>」或「<b>加到主畫面</b>」</li>
+                    </ol>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => setShowPwaGuide(false)}
+                  className="w-full bg-indigo-600 text-white font-bold py-3 rounded-full text-xs"
+                >
+                  好，我了解了！
+                </button>
+              </div>
+            </div>
+          )}
+
+          {}
+          {/* 底部固定導航欄 */}
+          <nav className="fixed bottom-6 left-6 right-6 bg-slate-900/95 backdrop-blur-xl rounded-[2.2rem] px-8 py-4 flex justify-around items-center z-30 shadow-xl max-w-md mx-auto">
+            <button 
+              onClick={() => setActiveTab('home')} 
+              className={`flex flex-col items-center transition-all ${activeTab === 'home' ? 'text-emerald-400 scale-110' : 'text-slate-400'}`}
+            >
+              <span className="text-xl">✨</span>
+              <span className="text-[10px] font-extrabold mt-1">打卡登記</span>
+            </button>
+            <button 
+              onClick={() => setActiveTab('history')} 
+              className={`flex flex-col items-center transition-all ${activeTab === 'history' ? 'text-emerald-400 scale-110' : 'text-slate-400'}`}
+            >
+              <span className="text-xl">📂</span>
+              <span className="text-[10px] font-extrabold mt-1">歷史流水帳</span>
+            </button>
+            <button 
+              onClick={() => setActiveTab('settle')} 
+              className={`flex flex-col items-center transition-all ${activeTab === 'settle' ? 'text-emerald-400 scale-110' : 'text-slate-400'}`}
+            >
+              <span className="text-xl">📊</span>
+              <span className="text-[10px] font-extrabold mt-1">結算分享</span>
+            </button>
+          </nav>
+
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
