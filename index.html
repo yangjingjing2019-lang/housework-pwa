@@ -74,8 +74,10 @@
     // --- 預設家事資料群組 ---
     const DEFAULT_TASKS = [
       // 烹飪與餐廚
+       { id: 'cook', name: '買菜', points: 30, icon: '🧺', category: 'kitchen' },
       { id: 'cook', name: '煮飯', points: 30, icon: '👨‍🍳', category: 'kitchen' },
       { id: 'dishes', name: '洗碗', points: 20, icon: '🍽️', category: 'kitchen' },
+      { id: 'dishes', name: '收拾廚房', points: 20, icon: '🧹', category: 'kitchen' },
       { id: 'cut_fruit', name: '切水果', points: 10, icon: '🍎', category: 'kitchen' },
       
       // 衣物整理
@@ -104,7 +106,9 @@
       { id: 'water_flowers', name: '澆花', points: 10, icon: '💧', category: 'outdoor' },
       
       // 其他
-      { id: 'others', name: '其他家事', points: 15, icon: '✨', category: 'other' }
+       { id: 'others', name: '取快遞', points: 15, icon: '✨', category: 'other' },
+       { id: 'others', name: '購買生活用品', points: 15, icon: '✨', category: 'other' },
+        { id: 'others', name: '其他家事', points: 15, icon: '✨', category: 'other' }，
     ];
 
     const CATEGORIES = [
